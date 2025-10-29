@@ -1,0 +1,7 @@
+models:
+  - name: model1
+    config:
+      materialized: table
+      INSTANCE: "{{ var('INSTANCE') }}"
+      USER: "{{ var('USER') }}"
+      PASSWORD: "{{ var('PASSWORD') }}"

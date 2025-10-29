@@ -1,0 +1,15 @@
+name: dbt_snowpark2
+version: 1.0.0
+config-version: 2
+profile: dbt_snowpark2
+
+vars:
+  INSTANCE: 'https://dev271744.service-now.com'
+  USER: 'admin'
+  PASSWORD: '***REMOVED***'
+
+model-paths:
+  - models
+models:
+  dbt_snowpark2:
+    +materialized: view

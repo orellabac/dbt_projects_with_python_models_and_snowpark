@@ -1,0 +1,240 @@
+```python
+# filepath: /workspaces/dbt_projects_with_python_models_and_snowpark/dbt-snowpark-service-now/models/model1.py
+import os
+import pandas as pd
+import requests
+from requests.auth import HTTPBasicAuth
+from snowflake.snowpark import Session, DataFrame
+from snowflake.snowpark import types as T
+
+# List of fields we want to extract from the ServiceNow result (pm_project.* may be nested)
+PM_PROJECT_FIELDS = [
+    ("pm_project.number", "project_number"),
+    ("pm_project.portfolio", "portfolio"),
+    ("pm_project.program", "program"),
+    ("pm_project.cost", "cost"),
+    ("pm_project.capex_cost", "capex_cost"),
+    ("pm_project.opex_cost", "opex_cost"),
+    ("pm_project.benefits", "benefits"),
+    ("pm_project.value", "value"),
+    ("pm_project.roi", "roi"),
+    ("pm_project.discount_rate", "discount_rate"),
+    ("pm_project.npv_value", "npv_value"),
+    ("pm_project.irr_value", "irr_value"),
+    ("pm_project.resource_planned_cost", "resource_planned_cost"),
+    ("pm_project.resource_allocated_cost", "resource_allocated_cost"),
+    ("pm_project.budget_cost", "budget_cost"),
+    ("pm_project.forecast_cost", "forecast_cost"),
+    ("pm_project.estimate_to_completion", "estimate_to_completion"),
+    ("pm_project.sys_id", "project_sys_id"),
+]
+
+
+def _normalize_num(x):
+    """Normalize numeric-like values to float or NaN."""
+    if x is None:
+        return float("nan")
+    if isinstance(x, (int, float)):
+        return float(x)
+    # remove currency symbols, commas, whitespace
+    try:
+        s = str(x).replace(",", "").strip()
+        # empty string -> nan
+        if s == "":
+            return float("nan")
+        return float(s)
+    except Exception:
+        return float("nan")
+
+
+def _extract_field(rec, dotted_key):
+    """
+    Extract value from record for dotted keys like 'pm_project.number'.
+    Handles both nested dicts and keys that already contain dots.
+    """
+    # direct key (e.g., 'pm_project.number' as a key in rec)
+    if dotted_key in rec:
+        return rec.get(dotted_key)
+    # nested dict path
+    parts = dotted_key.split(".")
+    cur = rec
+    for p in parts:
+        if isinstance(cur, dict) and p in cur:
+            cur = cur[p]
+        else:
+            return None
+    return cur
+
+
+def _flatten_record(rec: dict) -> dict:
+    """Return a flattened dict with desired columns and derived metrics."""
+    out = {}
+    out["baseline_name"] = rec.get("baseline_name")
+    out["sys_created_on"] = rec.get("sys_created_on")
+    # pull pm_project.* fields
+    for dotted, out_name in PM_PROJECT_FIELDS:
+        out[out_name] = _extract_field(rec, dotted)
+
+    # Parse timestamps
+    try:
+        out["created_ts"] = pd.to_datetime(out["sys_created_on"], errors="coerce")
+    except Exception:
+        out["created_ts"] = pd.NaT
+
+    # Normalize numeric fields
+    numeric_cols = [
+        "cost",
+        "capex_cost",
+        "opex_cost",
+        "benefits",
+        "value",
+        "roi",
+        "discount_rate",
+        "npv_value",
+        "irr_value",
+        "resource_planned_cost",
+        "resource_allocated_cost",
+        "budget_cost",
+        "forecast_cost",
+        "estimate_to_completion",
+    ]
+    for c in numeric_cols:
+        out[c] = _normalize_num(out.get(c))
+
+    # Derived metrics
+    total_estimated = sum(
+        [
+            x
+            for x in [
+                out.get("budget_cost", float("nan")),
+                out.get("forecast_cost", float("nan")),
+                out.get("estimate_to_completion", float("nan")),
+                out.get("resource_planned_cost", float("nan")),
+            ]
+            if pd.notna(x)
+        ]
+    )
+    out["total_estimated_cost"] = float(total_estimated) if total_estimated != 0 else float("nan")
+
+    # capex percentage of total_estimated_cost (if possible)
+    try:
+        if pd.notna(out.get("capex_cost")) and out["total_estimated_cost"] and out["total_estimated_cost"] > 0:
+            out["capex_pct"] = float(out["capex_cost"]) / float(out["total_estimated_cost"])
+        else:
+            out["capex_pct"] = float("nan")
+    except Exception:
+        out["capex_pct"] = float("nan")
+
+    return out
+
+
+def fetch_servicenow_records(instance: str, user: str, password: str, limit: int = 100) -> pd.DataFrame:
+    """
+    Fetch records from ServiceNow Table API and return a pandas DataFrame of raw results.
+    instance should include the scheme, e.g. 'https://yourinstance.service-now.com'
+    """
+    url = f"{instance.rstrip('/')}/api/now/table/pm_project_baseline"
+    params = {
+        "sysparm_display_value": "true",
+        "sysparm_limit": str(limit),
+        "sysparm_fields": ",".join(
+            [
+                "baseline_name",
+                "sys_created_on",
+                "pm_project.number",
+                "pm_project.portfolio",
+                "pm_project.program",
+                "pm_project.cost",
+                "pm_project.capex_cost",
+                "pm_project.opex_cost",
+                "pm_project.benefits",
+                "pm_project.value",
+                "pm_project.roi",
+                "pm_project.discount_rate",
+                "pm_project.npv_value",
+                "pm_project.irr_value",
+                "pm_project.resource_planned_cost",
+                "pm_project.resource_allocated_cost",
+                "pm_project.budget_cost",
+                "pm_project.forecast_cost",
+                "pm_project.estimate_to_completion",
+                "pm_project.sys_id",
+            ]
+        ),
+    }
+
+    resp = requests.get(url, params=params, auth=HTTPBasicAuth(user, password), headers={"Accept": "application/json"}, timeout=30)
+    if resp.status_code != 200:
+        raise RuntimeError(f"ServiceNow API error {resp.status_code}: {resp.text}")
+
+    results = resp.json().get("result", [])
+    return pd.DataFrame(results)
+
+
+def model(dbt, session: Session) -> DataFrame:
+    """
+    dbt Python model:
+    - fetch ServiceNow data (or expects it to be available),
+    - flatten and transform it,
+    - return a Snowpark DataFrame with an explicit schema.
+    """
+    # 1) Materialization
+    dbt.config(materialized="table")
+
+    # Credentials: prefer dbt.config, fall back to environment variables
+    INSTANCE = dbt.config.get("INSTANCE") or os.environ.get("SERVICENOW_INSTANCE")
+    USER = dbt.config.get("USER") or os.environ.get("SERVICENOW_USER")
+    PASSWORD = dbt.config.get("PASSWORD") or os.environ.get("SERVICENOW_PASSWORD")
+    LIMIT = int(dbt.config.get("LIMIT") or os.environ.get("SERVICENOW_LIMIT") or 100)
+
+    if not (INSTANCE and USER and PASSWORD):
+        raise RuntimeError("Missing ServiceNow credentials: set INSTANCE, USER, PASSWORD in dbt config or environment variables")
+
+    # Fetch raw records (pandas)
+    raw_df = fetch_servicenow_records(INSTANCE, USER, PASSWORD, limit=LIMIT)
+
+    # Flatten/transform
+    flattened = [_flatten_record(rec if isinstance(rec, dict) else rec) for rec in raw_df.to_dict(orient="records")]
+
+    transformed_df = pd.DataFrame(flattened)
+
+    # Define Snowpark schema (types)
+    schema = T.StructType(
+        [
+            T.StructField("baseline_name", T.StringType()),
+            T.StructField("sys_created_on", T.StringType()),
+            T.StructField("created_ts", T.TimestampType()),
+            T.StructField("project_number", T.StringType()),
+            T.StructField("portfolio", T.StringType()),
+            T.StructField("program", T.StringType()),
+            T.StructField("project_sys_id", T.StringType()),
+            T.StructField("cost", T.DoubleType()),
+            T.StructField("capex_cost", T.DoubleType()),
+            T.StructField("opex_cost", T.DoubleType()),
+            T.StructField("benefits", T.DoubleType()),
+            T.StructField("value", T.DoubleType()),
+            T.StructField("roi", T.DoubleType()),
+            T.StructField("discount_rate", T.DoubleType()),
+            T.StructField("npv_value", T.DoubleType()),
+            T.StructField("irr_value", T.DoubleType()),
+            T.StructField("resource_planned_cost", T.DoubleType()),
+            T.StructField("resource_allocated_cost", T.DoubleType()),
+            T.StructField("budget_cost", T.DoubleType()),
+            T.StructField("forecast_cost", T.DoubleType()),
+            T.StructField("estimate_to_completion", T.DoubleType()),
+            T.StructField("total_estimated_cost", T.DoubleType()),
+            T.StructField("capex_pct", T.DoubleType()),
+        ]
+    )
+
+    # Create Snowpark DataFrame from pandas, applying the schema so Snowflake types are correct
+    # Note: session.create_dataframe will cast where possible.
+    result_df = session.create_dataframe(transformed_df, schema=schema)
+
+    return result_df
+
+# If you need to run the HTTP call as a Snowflake server-side sproc (Snowpark),
+# register a sproc that wraps fetch_servicenow_records and returns a DataFrame.
+# That approach requires that the Snowflake execution environment has network access
+# via an external access integration and that required packages are available.
+```

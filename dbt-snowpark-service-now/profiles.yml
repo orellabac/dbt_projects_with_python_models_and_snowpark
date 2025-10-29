@@ -1,0 +1,11 @@
+dbt_snowpark2:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      role: ACCOUNTADMIN
+      warehouse: XSMALL_WH
+      database: SNOWPARK_TESTDB
+      schema: PUBLIC
+      account: sfsenorthamerica-va_demo159
+      user: mrojas
