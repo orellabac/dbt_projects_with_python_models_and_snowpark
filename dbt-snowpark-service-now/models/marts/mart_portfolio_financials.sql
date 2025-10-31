@@ -5,14 +5,9 @@ with projects as (
 )
 
 select
-  coalesce(portfolio, 'UNASSIGNED') as portfolio,
-  coalesce(program, 'UNASSIGNED')   as program,
   count(*)                                    as project_count,
-  sum(total_estimated_cost)                   as total_estimated_cost,
-  avg(case when capex_pct is not null then capex_pct end) as avg_capex_pct,
-  avg(case when roi is not null then roi end)            as avg_roi,
-  max(total_estimated_cost)                     as max_project_cost
+  avg(case when cost is not null and cost != 0 then capex_cost / nullif(cost, 0) end) as avg_capex_pct,
+  avg(case when roi is not null then roi end)            as avg_roi
 from projects
-group by 1, 2
-order by total_estimated_cost desc
-;
+-- no grouping columns selected; overall aggregate only
+

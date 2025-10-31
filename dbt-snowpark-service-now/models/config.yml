@@ -1,5 +1,5 @@
 models:
-  - name: model1
+  - name: stg_servicenow_pm_project_baseline
     config:
       materialized: table
       INSTANCE: "{{ var('INSTANCE') }}"

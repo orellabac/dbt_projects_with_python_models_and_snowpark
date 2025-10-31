@@ -16,9 +16,14 @@ def model(dbt, session: Session):
         materialized="table"
     )
 
-    def read_servicenow_data(session:Session, instance: str, user: str, password: str) -> DataFrame:
+    # Replace these with your instance and credentials
+    INSTANCE = dbt.config.get("INSTANCE")
+    USER     = dbt.config.get("USER")
+    PASSWORD = dbt.config.get("PASSWORD")
+
+    def read_servicenow_data(session:Session) -> DataFrame:
         # Base URL for the ServiceNow Table API
-        url = f"{instance}/api/now/table/pm_project_baseline"
+        url = f"{INSTANCE}/api/now/table/pm_project_baseline"
 
         params = {
         "sysparm_display_value": "true",  # show readable values instead of sys_id
@@ -50,13 +55,16 @@ def model(dbt, session: Session):
         response = requests.get(
             url,
             params=params,
-            auth=HTTPBasicAuth(user, password),
+            auth=HTTPBasicAuth(USER, PASSWORD),
             headers={"Accept": "application/json"},
             timeout=30
         )
         if response.status_code == 200:
             results = response.json().get("result",[])
-            return session.create_dataframe(pd.DataFrame(results))
+            df = pd.DataFrame(results)
+            # Uppercase all column names and replace dots with underscores
+            df.columns = df.columns.str.upper().str.replace(".", "_")
+            return session.create_dataframe(df)
         else:
             raise Exception(f"❌ Error {response.status_code}: {response.text}")
 
@@ -67,13 +75,10 @@ def model(dbt, session: Session):
             is_permanent=False,                              # Set to True to make it permanent
             replace=True,                                    # Allows overwriting an existing procedure
             return_type=T.StructType(),         
-            input_types=[T.StringType(), T.StringType(), T.StringType()]       # Input types of the Python function
+            input_types=[]       # Input types of the Python function
         )
 
-    # Replace these with your instance and credentials
-    INSTANCE = dbt.config.get("INSTANCE")
-    USER     = dbt.config.get("USER")
-    PASSWORD = dbt.config.get("PASSWORD")
-    result_df = sproc_ref(INSTANCE, USER, PASSWORD)
+
+    result_df = sproc_ref()
     return result_df
     

@@ -4,9 +4,9 @@ config-version: 2
 profile: dbt_snowpark_service_now
 
 vars:
-  INSTANCE: 'https://xxxxx.service-now.com'
-  USER: 'admin'
-  PASSWORD: 'your_password'
+  SECRET_NAME: 'GSHEETS_SECRETS'
+  SPREADSHEET_ID: 'your_spreadsheet_id'
+  RANGE_NAME: 'Sheet1'
 
 model-paths:
   - models
