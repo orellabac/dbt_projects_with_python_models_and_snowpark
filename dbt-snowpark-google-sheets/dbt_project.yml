@@ -1,7 +1,7 @@
-name: dbt_snowpark_service_now
+name: dbt_snowpark_google_sheets
 version: 1.0.0
 config-version: 2
-profile: dbt_snowpark_service_now
+profile: dbt_snowpark_google_sheets
 
 vars:
   SECRET_NAME: 'GSHEETS_SECRETS'
@@ -11,5 +11,5 @@ vars:
 model-paths:
   - models
 models:
-  dbt_snowpark_service_now:
+  dbt_snowpark_google_sheets:
     +materialized: view
