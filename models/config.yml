@@ -1,0 +1,7 @@
+models:
+  - name: stg_servicenow_pm_project_baseline
+    config:
+      materialized: table
+      INSTANCE: "{{ var('INSTANCE') }}"
+      USER: "{{ var('USER') }}"
+      PASSWORD: "{{ var('PASSWORD') }}"
