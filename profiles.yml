@@ -1,4 +1,4 @@
-dbt_snowpark_service_now:
+dbt_snowpark_google_sheets:
   target: dev
   outputs:
     dev:

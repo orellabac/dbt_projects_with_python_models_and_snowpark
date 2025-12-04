@@ -1,0 +1,16 @@
+name: dbt_snowpark_google_sheets
+version: 1.0.0
+config-version: 2
+profile: dbt_snowpark_google_sheets
+
+vars:
+  SECRET_NAME: 'GSHEETS_SECRETS'
+  SPREADSHEET_ID: 'your_spread_shet_id'
+  RANGE_NAME: 'Sheet1'
+  EAI_NAME: 'google_apis_access_integration'
+
+model-paths:
+  - models
+models:
+  dbt_snowpark_google_sheets:
+    +materialized: view

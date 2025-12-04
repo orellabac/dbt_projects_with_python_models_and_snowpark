@@ -1,0 +1,8 @@
+models:
+  - name: stg_google_sheets_campaigns
+    config:
+      materialized: table
+      SECRET_NAME: "{{ var('SECRET_NAME') }}"
+      SPREADSHEET_ID: "{{ var('SPREADSHEET_ID') }}"
+      RANGE_NAME: "{{ var('RANGE_NAME') }}"
+      EAI_NAME: "{{ var('EAI_NAME') }}"
